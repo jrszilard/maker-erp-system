@@ -1,0 +1,20 @@
+# Operator secrets — NEVER commit these.
+# Copy the *.example templates, fill them in, and the real files stay ignored.
+.env
+.env.*
+!.env.example
+
+# Operator-local Caddyfile (copied from Caddyfile.example) — holds basic-auth creds.
+deploy/Caddyfile
+
+# Smoke-test runtime files (created by deploy/scripts/smoke.sh, removed on exit,
+# but may linger after a crash).
+deploy/.env.smoke
+deploy/Caddyfile.smoke
+
+# Backup archives — contain real data and may contain secrets; never commit.
+deploy/backups/
+
+# OS
+.DS_Store
+Thumbs.db

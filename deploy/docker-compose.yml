@@ -1,0 +1,87 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Auth credentials live in the Caddyfile (gitignored), NOT here: a bcrypt hash's
+      # `$` chars are corrupted by compose .env interpolation. See Caddyfile.example.
+      MAKER_DOMAIN: ${MAKER_DOMAIN}
+    volumes:
+      # Defaults to ./Caddyfile (copied from Caddyfile.example). The smoke test points
+      # CADDYFILE at ./Caddyfile.smoke instead — robust regardless of compose merge rules.
+      - ${CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_started
+
+  app:
+    build:
+      context: "https://github.com/jrszilard/theseus-erp.git#${THESEUS_REF}"
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://theseus:${POSTGRES_PASSWORD}@db:5432/theseus
+      STORAGE_BACKEND: minio
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER}
+      STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      # The app expects bucket 'theseus-assets'; MinIO does NOT auto-create it.
+      # `mc` is NOT in the minio server image — create the bucket with a one-shot
+      # `minio/mc` sidecar container. See the runbook's "first-boot bucket creation".
+      # (The bucket is not needed to boot — only once asset uploads are surfaced.)
+      STORAGE_BUCKET: theseus-assets
+      SECRET_KEY: ${SECRET_KEY}
+      THESEUS_SEED_PACKS: maker
+      ENFORCE_PRODUCTION: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        # service_started, not service_healthy: the app does not touch MinIO at boot
+        # (only once asset uploads are surfaced — a deferred feature), so a curl-less or
+        # flaky MinIO healthcheck must never block the app from starting.
+        condition: service_started
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: theseus
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: theseus
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U theseus"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    # Before go-live, pin this to a specific RELEASE.* tag — `latest` risks silent
+    # breaking changes (MinIO has changed its console/licensing in 2025 releases).
+    # Current tags: https://hub.docker.com/r/minio/minio/tags
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      # curl is included in recent minio/minio images
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:
+  miniodata:
+  caddy_data:
+  caddy_config:
