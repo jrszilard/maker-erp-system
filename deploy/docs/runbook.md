@@ -328,3 +328,35 @@ Before exposing the stack to the internet:
   volume by matching the suffix `miniodata` (`head -n1` picks the first alphabetically).
   Running a second Theseus stack on the same host requires explicit volume targeting in
   both scripts.
+
+---
+
+## 9. Monitoring & alerting
+
+Backups protect the data; monitoring protects the maker — it tells you the app is down
+**before she does**. For a single-operator deployment this is not optional. Two free,
+external services (~10 min total):
+
+- **Uptime:** point UptimeRobot (or similar) at `https://<domain>/health`. The Caddyfile
+  leaves `/health` **public** on purpose so the probe reaches the app, not just Caddy.
+- **Backup dead-man's-switch:** set `HEALTHCHECK_URL` (a Healthchecks.io ping URL) in the
+  backup cron line; `backup.sh` pings it on success and `<url>/fail` on any failure, so a
+  silently-stopped backup alerts you.
+
+Full setup: [`monitoring.md`](monitoring.md). Route alerts to SMS/phone-push, and add a
+second contact (bus factor).
+
+---
+
+## 10. Disaster recovery & continuity
+
+The bundle is portable by design: a host failure (or account suspension) is "restore onto a
+fresh box," not data loss — **provided** the off-site backup lives on a *different* account
+than the host, and you've rehearsed the restore. The continuity doc covers restore-from-
+scratch onto a new provider, the "get the maker's data out" escape hatch (`theseus export`),
+billing-lapse continuity (the most common cause of an outage), and a credential inventory for
+the bus-factor case.
+
+Full procedure + the fill-in inventory: [`recovery.md`](recovery.md). **Do the clean-box
+restore drill once** — a restore you've never run against a fresh box at a different provider
+is a hope, not a backup.

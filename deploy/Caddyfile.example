@@ -16,7 +16,14 @@
 # Caddy v2.8+: the directive is `basic_auth` (older 2.x: `basicauth`).
 
 {$MAKER_DOMAIN} {
-	basic_auth {
+	# Everything is behind basic-auth EXCEPT /health, which is intentionally left PUBLIC
+	# so an external uptime monitor (UptimeRobot / Healthchecks / etc.) can verify the app
+	# is actually serving — not merely that Caddy is up. Monitoring /health *through* auth
+	# is theater: an unauthenticated probe gets a 401 that Caddy returns itself, without
+	# ever touching the app, so the app could be dead and the check still "passes".
+	# /health returns no sensitive data. See docs/monitoring.md.
+	@protected not path /health /health/*
+	basic_auth @protected {
 		# Replace BOTH the username and the hash below.
 		# Generate the hash (note the literal password in single quotes):
 		#   docker run --rm caddy:2-alpine caddy hash-password --plaintext 'your-password'

@@ -38,7 +38,8 @@ cat > Caddyfile.smoke <<EOF
 	local_certs
 }
 localhost {
-	basic_auth {
+	@protected not path /health /health/*
+	basic_auth @protected {
 		${SMOKE_USER} ${SMOKE_HASH}
 	}
 	request_body {
@@ -60,15 +61,19 @@ for _ in $(seq 1 60); do
 done
 [ -n "$ok" ] || { echo "[smoke] FAIL: stack never became healthy"; $COMPOSE logs --tail 50 caddy app; exit 1; }
 
-echo "[smoke] 1/3 unauthenticated request must be 401…"
+echo "[smoke] 1/4 unauthenticated app request must be 401…"
 code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/ || true)
 [ "$code" = "401" ] || { echo "[smoke] FAIL: expected 401, got $code"; exit 1; }
 
-echo "[smoke] 2/3 authenticated /health must be 200…"
+echo "[smoke] 2/4 unauthenticated /health must be 200 (public for external uptime monitoring)…"
+code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/health || true)
+[ "$code" = "200" ] || { echo "[smoke] FAIL: expected public /health 200, got $code"; $COMPOSE logs --tail 50 caddy app; exit 1; }
+
+echo "[smoke] 3/4 authenticated /health must be 200…"
 code=$(curl -sk -u "$SMOKE_USER:$SMOKE_PASS" -o /dev/null -w '%{http_code}' https://localhost/health || true)
 [ "$code" = "200" ] || { echo "[smoke] FAIL: expected 200, got $code"; $COMPOSE logs --tail 50 app; exit 1; }
 
-echo "[smoke] 3/3 authenticated board must render…"
+echo "[smoke] 4/4 authenticated board must render…"
 body=$(curl -sk -u "$SMOKE_USER:$SMOKE_PASS" https://localhost/ || true)
 echo "$body" | grep -q "Ideas\|Welcome to Maker Edition" \
   || { echo "[smoke] FAIL: board not served"; exit 1; }

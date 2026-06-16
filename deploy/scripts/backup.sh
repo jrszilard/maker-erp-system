@@ -9,6 +9,24 @@ mkdir -p "$OUT_DIR"
 
 COMPOSE="docker compose -f docker-compose.yml"
 
+# Dead-man's-switch (optional, recommended): ping a Healthchecks.io-style URL on success
+# and "<url>/fail" on ANY failure. Set HEALTHCHECK_URL (e.g. https://hc-ping.com/<uuid>)
+# in the cron environment so a backup that silently stops running — or fails — actively
+# alerts you, instead of you discovering it only when you need the backup. See
+# docs/monitoring.md. The EXIT trap fires on success, on `set -e` aborts, and on `exit 1`.
+HEALTHCHECK_URL="${HEALTHCHECK_URL:-}"
+_hc_signal() {
+  local rc=$?
+  if [ -n "$HEALTHCHECK_URL" ] && command -v curl >/dev/null 2>&1; then
+    if [ "$rc" -eq 0 ]; then
+      curl -fsS -m 10 --retry 3 -o /dev/null "$HEALTHCHECK_URL"      || true
+    else
+      curl -fsS -m 10 --retry 3 -o /dev/null "$HEALTHCHECK_URL/fail" || true
+    fi
+  fi
+}
+trap _hc_signal EXIT
+
 echo "[backup] pg_dump…"
 $COMPOSE exec -T db pg_dump -U theseus theseus | gzip > "$OUT_DIR/db-$STAMP.sql.gz"
 
