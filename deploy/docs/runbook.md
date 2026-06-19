@@ -105,10 +105,10 @@ docker run --rm --network deploy_default \
   minio/mc mb --ignore-existing local/theseus-assets
 ```
 
-> **This step is recommended but not required for the app to boot.** The app's
-> `depends_on minio` only gates on MinIO's liveness endpoint — boot and initial seeding
-> do not touch the bucket. Create it now to avoid a failure once asset uploads are
-> surfaced in the UI (a deferred feature; see §8).
+> **Not required for the app to boot, but required for the asset file strips (§8).** The
+> app's `depends_on minio` only gates on MinIO's liveness endpoint — boot and initial
+> seeding do not touch the bucket. The serve route behind the design-detail file strips
+> reads objects from this bucket, so it must exist before that feature works.
 
 ### 1.6 Verify
 
@@ -313,10 +313,13 @@ Before exposing the stack to the internet:
 
 ## 8. Known constraints
 
-- **Asset files are not yet shown in the UI.** MinIO is internal-only; presigned URLs
-  will not resolve in a browser. Surfacing files requires the deferred app-side proxy
-  route `GET /api/v1/assets/raw/{key}`. The `theseus-assets` bucket must still exist
-  (§1.5), and the export (§5) includes all asset files regardless.
+- **Asset files are shown in the UI (read-only).** As of `THESEUS_REF` `bd1672d…` the app
+  serves asset bytes via `GET /api/v1/assets/raw/{key}` (raster images `inline`, everything
+  else — incl. SVG — as an `attachment`; `X-Content-Type-Options: nosniff` always), and the
+  design-detail screen renders Blueprint-introspected file strips. The `theseus-assets`
+  bucket must exist (§1.5) for the route to fetch bytes. **Uploading/attaching files from
+  the UI is still deferred** — files are attached via the asset API; the export (§5)
+  includes all asset files regardless.
 
 - **Schema is created by `create_all` at boot, not Alembic.** An initial Alembic
   migration exists in the repo but is not yet wired into the boot path; `create_all`
