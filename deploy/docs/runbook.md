@@ -123,14 +123,21 @@ In the maker's mobile browser, use **Add to Home Screen** to save the URL as an 
 
 ## 2. Upgrade
 
+> **First upgrade to an Alembic release?** If this prod DB predates Alembic (no
+> `alembic_version` table), do the one-time adoption in "Adopting Alembic on the
+> existing prod database" (below) **before** `docker compose up -d` — otherwise the
+> entrypoint's `theseus migrate` will fail trying to recreate existing tables.
+
 1. **Back up first (mandatory):** `./scripts/backup.sh`
 
-   The boot path creates the schema via SQLAlchemy `create_all` (the entrypoint runs
-   `theseus seed`, which builds the full registry and creates any missing tables). An
-   initial Alembic migration exists in the repo but is **not yet wired into boot**, so
-   additive schema changes (new tables/columns) are applied automatically at boot. Any
-   release that ALTERS or RENAMES an existing column must ship its own migration script;
-   back up before every upgrade regardless.
+   The container entrypoint runs `theseus migrate` (`alembic upgrade head`) automatically
+   before the app starts — schema changes are applied in place, with data preserved. Back
+   up before every upgrade regardless.
+
+   **Manual fallback** (e.g. to debug a migration failure without starting the app):
+   ```sh
+   docker compose run --rm --entrypoint sh app -c 'python -m theseus.cli migrate'
+   ```
 
 2. Bump `THESEUS_REF` in `.env` to the new commit SHA.
 
@@ -147,6 +154,55 @@ In the maker's mobile browser, use **Add to Home Screen** to save the URL as an 
 
 **Rollback:** restore the pre-upgrade backup (§4) and set `THESEUS_REF` back to the
 previous SHA, then re-run `docker compose up -d --build`.
+
+### Adopting Alembic on the existing prod database (one-time)
+
+Prod databases built before this release have no `alembic_version` table — the schema
+was created by `create_all`. The baseline migration's `CREATE TABLE` statements would
+**fail** against those existing tables. Stamp the baseline **once** (records the version,
+runs no DDL) **before** the first migration-image boot:
+
+1. Verify prod has no `alembic_version` table:
+   ```sh
+   docker compose exec db psql -U theseus -d theseus -c "\dt alembic_version"
+   ```
+   Expect: "Did not find any relation". If the table already exists the DB is already
+   stamped — skip to step 4.
+
+2. **Confirm the prod schema matches the baseline — count the tables.** `create_all` no
+   longer backfills at boot, so any table the baseline expects that prod lacks will *never*
+   be created once you stamp. Count prod's tables and compare to the baseline (currently **32**):
+   ```sh
+   docker compose exec -T db sh -c \
+     'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT count(*) FROM pg_tables WHERE schemaname=current_schema()"'
+   ```
+   If the count is **short**, the old `create_all` boot path likely skipped tables whose
+   models it never imported. (On the 2026-06-29 adoption, prod had **31** — it was missing
+   **`crew_members`**, because the old boot only imported the assets + event-store models.)
+   **Reconcile additively *before* stamping** — create each missing table from its model
+   (non-destructive; the table holds no data). Example for `crew_members`:
+   ```sh
+   docker compose exec -T app python - <<'PY'
+   import asyncio
+   from theseus.database import engine
+   from theseus.keel.auth.models import CrewMember   # import the model for the missing table
+   async def _create():
+       async with engine.begin() as conn:
+           await conn.run_sync(CrewMember.__table__.create)
+   asyncio.run(_create())
+   PY
+   ```
+   Re-run the count and confirm it equals the baseline before continuing.
+
+3. Stamp the baseline (bypass the entrypoint so it does not try to `upgrade`):
+   ```sh
+   docker compose run --rm --entrypoint sh app -c 'python -m alembic stamp head'
+   ```
+
+4. `docker compose up -d` normally — the entrypoint's `theseus migrate` is a no-op
+   (already at head) and the app boots. Future deploys apply new migrations automatically.
+
+> **Warning:** never run `theseus check-migrations` against prod — it is destructive.
 
 ---
 
@@ -321,11 +377,12 @@ Before exposing the stack to the internet:
   the UI is still deferred** — files are attached via the asset API; the export (§5)
   includes all asset files regardless.
 
-- **Schema is created by `create_all` at boot, not Alembic.** An initial Alembic
-  migration exists in the repo but is not yet wired into the boot path; `create_all`
-  handles additive schema changes (new tables/columns) at boot. Any destructive schema
-  change (ALTER/RENAME/DROP column) must ship an explicit migration. Back up before every
-  upgrade — see §2.
+- **Schema is managed by Alembic migrations.** The container entrypoint runs
+  `theseus migrate` (`alembic upgrade head`) before the app starts, applying any pending
+  migrations in place with data preserved. Back up before every upgrade — see §2.
+  Operators upgrading a database built before this release must stamp the baseline once
+  before the first migration-image boot — see §2 "Adopting Alembic on the existing prod
+  database (one-time)".
 
 - **Single deployment per host assumed.** The backup and restore scripts find the MinIO
   volume by matching the suffix `miniodata` (`head -n1` picks the first alphabetically).
