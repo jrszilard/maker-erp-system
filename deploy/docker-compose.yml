@@ -37,6 +37,10 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       THESEUS_SEED_PACKS: maker
       ENFORCE_PRODUCTION: "true"
+      # External-storefront integration API (opt-in). Unset/empty = disabled (503).
+      # Set INTEGRATION_API_TOKEN in .env to enable. See runbook §11. The `:-` default
+      # keeps the app booting (empty = disabled) when the var is absent from .env.
+      INTEGRATION_API_TOKEN: ${INTEGRATION_API_TOKEN:-}
     depends_on:
       db:
         condition: service_healthy

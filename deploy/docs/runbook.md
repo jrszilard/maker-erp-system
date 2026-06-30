@@ -433,7 +433,12 @@ products. **Opt-in:** endpoints return 503 until `INTEGRATION_API_TOKEN` is set 
 1. Set `INTEGRATION_API_TOKEN` in `.env` — generate with `openssl rand -hex 32`.
 2. Confirm `Caddyfile` carves out `/api/v1/integration/*` from the `@protected` matcher
    (already present in `Caddyfile.example`).
-3. Redeploy: `docker compose up -d --build`.
+3. **Existing installs only:** confirm the `app` service in `docker-compose.yml` forwards
+   the token — `INTEGRATION_API_TOKEN: ${INTEGRATION_API_TOKEN:-}` in its `environment:`
+   block. The app uses an explicit env allowlist (not `env_file`), so a value in `.env`
+   that compose does not forward never reaches the container and the API stays `503`. Boxes
+   installed before this bundle revision must add the line (or `git pull` the deploy repo).
+4. Redeploy: `docker compose up -d --build`.
 
 **Storefront call:**
 
