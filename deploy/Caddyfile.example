@@ -22,7 +22,7 @@
 	# is theater: an unauthenticated probe gets a 401 that Caddy returns itself, without
 	# ever touching the app, so the app could be dead and the check still "passes".
 	# /health returns no sensitive data. See docs/monitoring.md.
-	@protected not path /health /health/*
+	@protected not path /health /health/* /api/v1/integration/*
 	basic_auth @protected {
 		# Replace BOTH the username and the hash below.
 		# Generate the hash (note the literal password in single quotes):

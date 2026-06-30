@@ -420,3 +420,28 @@ the bus-factor case.
 Full procedure + the fill-in inventory: [`recovery.md`](recovery.md). **Do the clean-box
 restore drill once** — a restore you've never run against a fresh box at a different provider
 is a hope, not a backup.
+
+---
+
+## 11. Integration API (opt-in)
+
+Lets an external storefront (or any HTTP client) pull the maker's current-version sellable
+products. **Opt-in:** endpoints return 503 until `INTEGRATION_API_TOKEN` is set in `.env`.
+
+**Enable:**
+
+1. Set `INTEGRATION_API_TOKEN` in `.env` — generate with `openssl rand -hex 32`.
+2. Confirm `Caddyfile` carves out `/api/v1/integration/*` from the `@protected` matcher
+   (already present in `Caddyfile.example`).
+3. Redeploy: `docker compose up -d --build`.
+
+**Storefront call:**
+
+```sh
+curl -H "Authorization: Bearer <token>" https://<MAKER_DOMAIN>/api/v1/integration/products
+```
+
+Returns JSON — current-version sellable products. Append `/{sku}` for a single product.
+
+**Token rotation:** update `INTEGRATION_API_TOKEN` in `.env` + redeploy. Old token is
+invalidated immediately on container start. Empty the value to disable the API again.
